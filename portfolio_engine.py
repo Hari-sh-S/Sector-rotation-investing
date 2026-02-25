@@ -1080,70 +1080,194 @@ class RotationEngine:
         print(f"Final equity: ₹{self.portfolio_history[-1]['equity']:,.0f}")
         print(f"Total trades: {len(self.trades)}")
     
+    @staticmethod
+    def _calc_zerodha_charges(trade_value, trade_type='equity_delivery'):
+        """Calculate Zerodha brokerage charges for a trade."""
+        # Brokerage: 0 for equity delivery
+        brokerage = 0.0
+        # STT: 0.1% on sell side for delivery
+        stt = trade_value * 0.001 if trade_type == 'sell' else 0
+        # Transaction charges: NSE 0.00297%
+        transaction = trade_value * 0.0000297
+        # SEBI: 0.0001%
+        sebi = trade_value * 0.000001
+        # Stamp duty: 0.015% on buy
+        stamp = trade_value * 0.00015 if trade_type == 'buy' else 0
+        # GST: 18% on (brokerage + transaction + SEBI)
+        gst = (brokerage + transaction + sebi) * 0.18
+        total = brokerage + stt + transaction + sebi + stamp + gst
+        return round(total, 2)
+
     def _calculate_metrics(self):
-        """Calculate performance metrics from portfolio history."""
+        """Calculate comprehensive performance metrics from portfolio history."""
         if not self.portfolio_history:
             return
-        
+
         df = pd.DataFrame(self.portfolio_history)
         df['date'] = pd.to_datetime(df['date'])
         df.set_index('date', inplace=True)
-        
+
+        # Rename equity column to match reference app's portfolio_df format
+        df = df.rename(columns={'equity': 'Portfolio Value'})
+        df['Drawdown_Pct'] = (df['Portfolio Value'].cummax() - df['Portfolio Value']) / df['Portfolio Value'].cummax() * 100
+
         # Basic metrics
-        initial = df['equity'].iloc[0]
-        final = df['equity'].iloc[-1]
-        
-        # CAGR
+        initial = df['Portfolio Value'].iloc[0]
+        final = df['Portfolio Value'].iloc[-1]
         days = (df.index[-1] - df.index[0]).days
         years = days / 365.25
+
+        # CAGR
         cagr = ((final / initial) ** (1 / years) - 1) * 100 if years > 0 else 0
-        
+
         # Returns
-        df['returns'] = df['equity'].pct_change()
-        
+        df['returns'] = df['Portfolio Value'].pct_change()
+
         # Volatility (annualized)
         volatility = df['returns'].std() * np.sqrt(252) * 100
-        
+
         # Sharpe Ratio (assuming 6% risk-free)
         rf = 0.06 / 252
         excess_returns = df['returns'] - rf
         sharpe = np.sqrt(252) * excess_returns.mean() / excess_returns.std() if excess_returns.std() > 0 else 0
-        
+
+        # Sortino Ratio
+        neg_returns = excess_returns[excess_returns < 0]
+        sortino = np.sqrt(252) * excess_returns.mean() / neg_returns.std() if len(neg_returns) > 0 and neg_returns.std() > 0 else 0
+
         # Max Drawdown
-        df['peak'] = df['equity'].cummax()
-        df['drawdown'] = (df['peak'] - df['equity']) / df['peak']
+        df['peak'] = df['Portfolio Value'].cummax()
+        df['drawdown'] = (df['peak'] - df['Portfolio Value']) / df['peak']
         max_dd = df['drawdown'].max() * 100
-        
-        # Win Rate
+
+        # Days to recover from max drawdown
+        dd_min_idx = df['drawdown'].idxmax()
+        recovery_mask = (df.index > dd_min_idx) & (df['drawdown'] <= 0.001)
+        days_to_recover = (df.index[recovery_mask][0] - dd_min_idx).days if recovery_mask.any() else (df.index[-1] - dd_min_idx).days
+
+        # CVaR 5% (worst 5% of daily returns)
+        returns_sorted = df['returns'].dropna().sort_values()
+        cutoff = int(len(returns_sorted) * 0.05)
+        cvar_5 = returns_sorted.iloc[:cutoff].mean() * 100 if cutoff > 0 else 0
+
+        # ---- Trade-level metrics ----
         trades_df = pd.DataFrame(self.trades)
+        win_rate = 0
+        avg_win = avg_loss = expectancy = 0
+        max_consec_wins = max_consec_losses = 0
+        total_charges = 0
+        mae_list = []
+        period_pnls = []
+
         if not trades_df.empty and 'type' in trades_df.columns:
-            sells = trades_df[trades_df['type'] == 'SELL']
-            # Simple win rate based on sell price vs theoretical entry
-            # (would need proper PnL tracking)
-            win_rate = 0
-        else:
-            win_rate = 0
-        
+            # Match BUY → SELL pairs per ticker
+            buy_log = {}  # ticker -> list of (date, price, shares, value)
+            for _, row in trades_df.iterrows():
+                t = row.get('ticker', '')
+                if row['type'] == 'BUY':
+                    if t not in buy_log:
+                        buy_log[t] = []
+                    buy_log[t].append((row['date'], row['price'], row['shares'], row['value']))
+                    charges = self._calc_zerodha_charges(row['value'], 'buy')
+                    total_charges += charges
+                elif row['type'] == 'SELL':
+                    charges = self._calc_zerodha_charges(row['value'], 'sell')
+                    total_charges += charges
+                    if t in buy_log and buy_log[t]:
+                        buy_entry = buy_log[t].pop(0)
+                        pnl = (row['price'] - buy_entry[1]) * row['shares'] - charges
+                        period_pnls.append(pnl)
+                        # MAE: worst intra-trade drawdown proxy (use buy price vs low)
+                        if t in self.stock_data or t in self.etf_data:
+                            src = self.stock_data.get(t, self.etf_data.get(t))
+                            if src is not None:
+                                trade_slice = src.loc[
+                                    (src.index >= pd.Timestamp(buy_entry[0])) &
+                                    (src.index <= pd.Timestamp(row['date']))
+                                ]
+                                if not trade_slice.empty and 'Low' in trade_slice.columns:
+                                    min_low = float(trade_slice['Low'].min())
+                                    mae_pct = (buy_entry[1] - min_low) / buy_entry[1] * 100 if buy_entry[1] > 0 else 0
+                                    mae_list.append(mae_pct)
+
+            if period_pnls:
+                wins = [p for p in period_pnls if p > 0]
+                losses = [abs(p) for p in period_pnls if p <= 0]
+                win_rate = len(wins) / len(period_pnls) * 100
+                avg_win = np.mean(wins) if wins else 0
+                avg_loss = np.mean(losses) if losses else 0
+                wp = len(wins) / len(period_pnls)
+                lp = len(losses) / len(period_pnls)
+                expectancy = (wp * avg_win) - (lp * avg_loss)
+
+                # Consecutive wins/losses
+                streak = w_streak = l_streak = 0
+                for pnl in period_pnls:
+                    if pnl > 0:
+                        w_streak += 1; l_streak = 0
+                        max_consec_wins = max(max_consec_wins, w_streak)
+                    else:
+                        l_streak += 1; w_streak = 0
+                        max_consec_losses = max(max_consec_losses, l_streak)
+
+        mae_median = np.median(mae_list) if mae_list else 0
+        mae_95 = np.percentile(mae_list, 95) if mae_list else 0
+        mae_max = max(mae_list) if mae_list else 0
+
+        # Turnover
+        total_traded = trades_df['value'].sum() if not trades_df.empty else 0
+        turnover = total_traded / (initial * years) if years > 0 else 0
+
         # Monthly returns
-        monthly = df['equity'].resample('M').last()
+        monthly = df['Portfolio Value'].resample('ME').last()
         monthly_returns = monthly.pct_change().dropna()
-        
+
         self.metrics = {
-            'cagr': cagr,
-            'volatility': volatility,
-            'sharpe': sharpe,
-            'max_drawdown': max_dd,
-            'total_return': (final / initial - 1) * 100,
-            'initial_capital': initial,
-            'final_capital': final,
-            'total_trades': len(self.trades),
-            'years': years
+            'CAGR %': round(cagr, 2),
+            'Return %': round((final / initial - 1) * 100, 2),
+            'Volatility %': round(volatility, 2),
+            'Sharpe Ratio': round(sharpe, 2),
+            'Sortino Ratio': round(sortino, 2),
+            'Max Drawdown %': round(max_dd, 2),
+            'Days to Recover from DD': days_to_recover,
+            'CVaR 5%': round(cvar_5, 2),
+            'Win Rate %': round(win_rate, 2),
+            'Expectancy': round(expectancy, 0),
+            'Avg Win': round(avg_win, 0),
+            'Avg Loss': round(avg_loss, 0),
+            'Max Consecutive Wins': max_consec_wins,
+            'Max Consecutive Losses': max_consec_losses,
+            'Total Trades': len(trades_df) if not trades_df.empty else 0,
+            'Final Value': round(final, 0),
+            'Initial Capital': round(initial, 0),
+            'Total Charges': round(total_charges, 0),
+            'Turnover': round(turnover, 2),
+            'MAE Median %': round(mae_median, 2),
+            'MAE 95% %': round(mae_95, 2),
+            'MAE Max %': round(mae_max, 2),
+            'Years': round(years, 2),
+            # Legacy keys for compatibility
+            'cagr': round(cagr, 2),
+            'volatility': round(volatility, 2),
+            'sharpe': round(sharpe, 2),
+            'max_drawdown': round(max_dd, 2),
+            'total_return': round((final / initial - 1) * 100, 2),
+            'initial_capital': round(initial, 0),
+            'final_capital': round(final, 0),
+            'total_trades': len(trades_df) if not trades_df.empty else 0,
+            'years': round(years, 2),
         }
-        
-        # Store for analysis
+
+        # Store DataFrames for UI
+        self.portfolio_df = df  # Compatible with reference app naming
         self.equity_df = df
         self.monthly_returns = monthly_returns
-    
+        self.trades_df = trades_df if not trades_df.empty else pd.DataFrame()
+
+    def get_metrics(self):
+        """Return metrics dict (reference-app compatible)."""
+        return getattr(self, 'metrics', {})
+
     def get_results(self):
         """Return backtest results."""
         return {
@@ -1151,5 +1275,6 @@ class RotationEngine:
             'trades': self.trades,
             'portfolio_history': self.portfolio_history,
             'equity_df': getattr(self, 'equity_df', None),
-            'monthly_returns': getattr(self, 'monthly_returns', None)
+            'monthly_returns': getattr(self, 'monthly_returns', None),
+            'portfolio_df': getattr(self, 'portfolio_df', None),
         }

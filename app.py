@@ -76,27 +76,45 @@ for key, default in [
         st.session_state[key] = default
 
 # ─── SCORING TEMPLATES ────────────────────────────────────────────────────────
-INDEX_TEMPLATES = {
-    "6-Month Momentum": "6 Month Performance",
-    "12-Month Momentum": "12 Month Performance",
-    "3M + 6M + 12M": "(3 Month Performance + 6 Month Performance + 12 Month Performance) / 3",
-    "Risk-Adjusted (3M/Vol)": "3 Month Performance / Annualized Volatility",
-    "Dual Momentum": "0.5 * 6 Month Performance + 0.5 * 12 Month Performance",
-    "Multi-Period": "0.25*1 Month Performance + 0.25*3 Month Performance + 0.25*6 Month Performance + 0.25*12 Month Performance",
+# All 22 scoring templates directly from reference scoring.py
+SCORING_TEMPLATES = {
+    # Basic
+    "Simple Momentum": "6 Month Performance",
+    "Risk-Adjusted Momentum": "(6 Month Performance / 6 Month Volatility)",
+    "Weighted Performance": "(70% * 6 Month Performance) + (20% * 3 Month Performance) + (10% * 1 Month Performance)",
+    "Sharpe-Based": "6 Month Sharpe",
+    "Multi-Factor": "((80% * 9 Month Performance) + (20% * 6 Month Performance)) / 1 Month Volatility",
+    "Calmar Focus": "6 Month Calmar",
+    "Low Volatility": "1 / 3 Month Volatility",
+    "Momentum + Quality": "(6 Month Performance * 6 Month Sharpe)",
+    # Advanced
+    "Trend Consistency": "(6 Month Performance / 1 Month Volatility) * 6 Month Sharpe",
+    "Acceleration Momentum": "(3 Month Performance - 6 Month Performance) / 1 Month Volatility",
+    "Drawdown-Aware Momentum": "6 Month Performance / 6 Month Max Drawdown",
+    "Defensive Momentum": "6 Month Performance / 3 Month Volatility",
+    "Smooth Returns": "6 Month Sharpe * 6 Month Sortino",
+    "Multi-Horizon Momentum": "(1 Month Performance + 3 Month Performance + 6 Month Performance) / 3",
+    "Crash-Resistant Momentum": "6 Month Performance / 6 Month Downside Volatility",
+    "Momentum Persistence": "6 Month Performance / (1 + 6 Month Volatility)",
+    "Quality-Adjusted Trend": "(6 Month Performance * 6 Month Sharpe) / 6 Month Max Drawdown",
+    "Regime-Adaptive Momentum": "(9 Month Performance * 3 Month Sharpe) / 1 Month Volatility",
+    # Positive/Negative Days
+    "Consistency Focus": "6 Month Positive Days",
+    "Win Rate Momentum": "6 Month Performance * 6 Month Positive Days",
+    "Downside Avoidance": "6 Month Performance / 6 Month Negative Days",
+    # Distance from High/Low
+    "Near 52W High": "1 / (1 + 1 Year Distance From High)",
+    "Breakout Momentum": "6 Month Performance / (1 + 6 Month Distance From High)",
+    "Value + Momentum": "6 Month Performance * 6 Month Distance From Low",
 }
-STOCK_TEMPLATES = {
-    "6-Month Momentum": "6 Month Performance",
-    "Risk-Adjusted": "6 Month Performance / Annualized Volatility",
-    "Dual Momentum": "0.5 * 6 Month Performance + 0.5 * 12 Month Performance",
-    "Multi-Period": "0.25*1 Month Performance + 0.25*3 Month Performance + 0.5*6 Month Performance",
-}
-REGIME_TYPES = {
-    "EMA (Daily)": "EMA_1D", "EMA (Weekly)": "EMA_1W", "EMA (Monthly)": "EMA_1M",
-    "SMA (Daily)": "SMA_1D", "SMA (Weekly)": "SMA_1W", "SMA (Monthly)": "SMA_1M",
-    "MACD": "MACD",
-    "SuperTrend (Daily)": "SUPERTREND_1D", "SuperTrend (Weekly)": "SUPERTREND_1W",
-    "SuperTrend (Monthly)": "SUPERTREND_1M",
-}
+# Regime type IDs (flat list matching reference)
+REGIME_TYPE_OPTIONS = [
+    "SMA_1D", "SMA_1W", "SMA_1M",
+    "EMA_1D", "EMA_1W", "EMA_1M",
+    "MACD",
+    "SUPERTREND_1D", "SUPERTREND_1W", "SUPERTREND_1M",
+    "EQUITY", "EQUITY_MA", "DONCHIAN", "SWING_ATR", "BREADTH",
+]
 YAHOO_BENCHMARK_MAP = {
     "NIFTY 50": "^NSEI", "NIFTY NEXT 50": "^NSMIDCP", "NIFTY 100": "^CNX100",
     "NIFTY 200": "^CNX200", "NIFTY BANK": "^NSEBANK", "NIFTY IT": "^CNXIT",
@@ -180,32 +198,33 @@ with main_tabs[0]:
 
         # ── Index Scoring ──────────────────────────────────────────────────────
         st.markdown('<div class="section-header">📈 Index Scoring Formula</div>', unsafe_allow_html=True)
-        idx_tmpl = st.selectbox("Template", ["Custom"] + list(INDEX_TEMPLATES.keys()),
+        idx_tmpl = st.selectbox("Template", ["Custom"] + list(SCORING_TEMPLATES.keys()),
                                  key="idx_template", label_visibility="collapsed")
-        default_idx_formula = INDEX_TEMPLATES.get(idx_tmpl, "6 Month Performance") if idx_tmpl != "Custom" else "6 Month Performance"
+        default_idx_formula = SCORING_TEMPLATES.get(idx_tmpl, "6 Month Performance") if idx_tmpl != "Custom" else "6 Month Performance"
         index_formula = st.text_area("Index Formula", value=default_idx_formula,
-                                     height=68, key="idx_formula")
+                                     height=80, key="idx_formula")
         idx_ok, idx_msg = parser.validate_formula(index_formula)
-        if not idx_ok:
-            st.error(f"⚠️ {idx_msg}")
-        else:
-            st.success("✅ Valid formula")
+        st.success(f"✅ {idx_msg}") if idx_ok else st.error(f"❌ {idx_msg}")
+
+        with st.expander("📖 Available Metrics", expanded=False):
+            st.caption("💡 Use any 1-24 months or 1-52 weeks, e.g. `15 Month Performance`, `2 Week Volatility`")
+            st.markdown("""
+**Performance:** 1M • 3M • 6M • 9M • 1Y  
+**Volatility / Downside Vol / Max Drawdown:** same periods  
+**Risk-Adjusted:** Sharpe • Sortino • Calmar  
+**Other:** Positive Days • Negative Days • Distance From High • Distance From Low
+""")
 
         # ── Stock Scoring (shown when relevant) ───────────────────────────────
-        show_stock_formula = (rotation_mode == "Sector Rotation") or \
-                             (rotation_mode == "Asset Class Rotation" and 'investment_type' in dir() and investment_type == "Stock")
-        if show_stock_formula or rotation_mode == "Sector Rotation":
+        if rotation_mode == "Sector Rotation":
             st.markdown('<div class="section-header">📊 Stock Scoring Formula</div>', unsafe_allow_html=True)
-            stk_tmpl = st.selectbox("Stock Template", ["Custom"] + list(STOCK_TEMPLATES.keys()),
+            stk_tmpl = st.selectbox("Stock Template", ["Custom"] + list(SCORING_TEMPLATES.keys()),
                                      key="stk_template", label_visibility="collapsed")
-            default_stk = STOCK_TEMPLATES.get(stk_tmpl, "6 Month Performance") if stk_tmpl != "Custom" else "6 Month Performance"
+            default_stk = SCORING_TEMPLATES.get(stk_tmpl, "6 Month Performance") if stk_tmpl != "Custom" else "6 Month Performance"
             stock_formula = st.text_area("Stock Formula", value=default_stk,
-                                         height=68, key="stk_formula")
+                                         height=80, key="stk_formula")
             stk_ok, stk_msg = parser.validate_formula(stock_formula)
-            if not stk_ok:
-                st.error(f"⚠️ {stk_msg}")
-            else:
-                st.success("✅ Valid formula")
+            st.success(f"✅ {stk_msg}") if stk_ok else st.error(f"❌ {stk_msg}")
         else:
             stock_formula = None
 
@@ -226,39 +245,93 @@ with main_tabs[0]:
 
         # ── Position Sizing ────────────────────────────────────────────────────
         st.markdown('<div class="section-header">⚖️ Position Sizing</div>', unsafe_allow_html=True)
-        position_sizing = st.selectbox(
-            "Method",
-            ["equal_weight", "inverse_volatility", "score_weighted",
-             "inverse_drawdown", "risk_parity"],
-            format_func=lambda x: {
-                "equal_weight": "Equal Weight",
-                "inverse_volatility": "Inverse Volatility",
-                "score_weighted": "Score Weighted",
-                "inverse_drawdown": "Inverse Max Drawdown",
-                "risk_parity": "Risk Parity",
-            }.get(x, x),
-            label_visibility="collapsed"
-        )
-        use_position_cap = st.checkbox("Max Position Cap", value=False)
+        sizing_options = ["Equal Weight", "Inverse Volatility", "Inverse Downside Vol",
+                          "Inverse Max Drawdown", "Score-Weighted", "Risk Parity"]
+        position_sizing = st.selectbox("Method", sizing_options, label_visibility="collapsed")
+        use_position_cap = st.checkbox("Apply Max Position Cap", value=False,
+                                       help="Limit maximum allocation to any single position")
+        max_position_pct = 15
         if use_position_cap:
-            max_position_pct = st.slider("Cap %", 10, 100, 50, 5)
-        else:
-            max_position_pct = 100
+            max_position_pct = st.number_input("Max Position %", 5, 50, 15,
+                                               help="Maximum % of portfolio any single position can hold")
+        position_sizing_config = {
+            'method': position_sizing.lower().replace(' ', '_').replace('-', '_'),
+            'use_cap': use_position_cap,
+            'max_pct': max_position_pct,
+        }
 
         # ── Regime Filter ──────────────────────────────────────────────────────
         st.markdown('<div class="section-header">🛡️ Regime Filter</div>', unsafe_allow_html=True)
         use_regime = st.checkbox("Enable Regime Filter", value=False)
-        regime_config = {'enabled': False}
+        regime_config = None
         if use_regime:
-            regime_label = st.selectbox("Filter Type", list(REGIME_TYPES.keys()),
-                                         label_visibility="collapsed")
-            regime_type = REGIME_TYPES[regime_label]
-            regime_action = st.selectbox("Action When Triggered",
-                                          ["Go Cash", "Hold", "Reduce Exposure 50%"])
+            regime_type = st.selectbox("Regime Filter Type", REGIME_TYPE_OPTIONS,
+                                        help="SMA/EMA: 1D=Daily, 1W=Weekly, 1M=Monthly | DONCHIAN: Turtle Trading")
+            # Per-type sub-options
+            regime_value = None
+            recovery_dd = ma_period = exit_period = recovery_period = swing_period = atr_buffer = breadth_threshold = breadth_index = None
+
+            if regime_type in ["SMA_1D", "SMA_1W", "SMA_1M"]:
+                labels = {"SMA_1D": "Daily", "SMA_1W": "Weekly", "SMA_1M": "Monthly"}
+                st.caption(f"📈 SMA on {labels[regime_type]} timeframe")
+                regime_value = st.selectbox("SMA Period", [20, 50, 100, 150, 200], index=1)
+            elif regime_type in ["EMA_1D", "EMA_1W", "EMA_1M"]:
+                labels = {"EMA_1D": "Daily", "EMA_1W": "Weekly", "EMA_1M": "Monthly"}
+                st.caption(f"📈 EMA on {labels[regime_type]} timeframe")
+                regime_value = st.selectbox("EMA Period", [34, 68, 100, 150, 200], index=1)
+            elif regime_type == "MACD":
+                regime_value = st.selectbox("MACD Settings", ["35-70-12", "50-100-15", "75-150-12"])
+            elif regime_type in ["SUPERTREND_1D", "SUPERTREND_1W", "SUPERTREND_1M"]:
+                labels = {"SUPERTREND_1D": "Daily", "SUPERTREND_1W": "Weekly", "SUPERTREND_1M": "Monthly"}
+                st.caption(f"📊 SuperTrend on {labels[regime_type]} timeframe")
+                regime_value = st.selectbox("Period-Multiplier", ["7-2", "7-3", "10-2", "10-3"], index=1)
+            elif regime_type == "EQUITY":
+                eq1, eq2 = st.columns(2)
+                regime_value = eq1.number_input("DD SL % (Trigger)", 1, 50, 10,
+                                                help="Sell when drawdown exceeds this %")
+                recovery_dd = eq2.number_input("Recovery DD %", 0, 49, 5,
+                                              help="Re-enter when drawdown below this %")
+            elif regime_type == "EQUITY_MA":
+                ma_period = st.selectbox("Equity Curve MA Period", [20, 30, 50, 100, 200], index=2)
+                regime_value = ma_period
+            elif regime_type == "DONCHIAN":
+                st.caption("📈 Turtle Trading: Exit on N-day low, Recovery on M-day high")
+                d1, d2 = st.columns(2)
+                exit_period = d1.selectbox("Exit Period (days)", [40, 50, 55, 60], index=2)
+                recovery_period = d2.selectbox("Recovery Period (days)", [10, 15, 20, 25], index=2)
+                regime_value = exit_period
+            elif regime_type == "SWING_ATR":
+                st.caption("📊 Swing pivot with ATR buffer")
+                s1, s2 = st.columns(2)
+                swing_period = s1.number_input("Swing Lookback", 10, 50, 20)
+                atr_buffer = s2.number_input("ATR Buffer", 0.5, 3.0, 1.5, step=0.5)
+                regime_value = swing_period
+            elif regime_type == "BREADTH":
+                st.caption("📉 Market health: % of stocks above 200 SMA")
+                breadth_threshold = st.number_input("Breadth Threshold %", 40, 80, 60)
+                breadth_index = st.selectbox("Breadth Index", ["NIFTY 50", "NIFTY 100"])
+                regime_value = breadth_threshold
+
+            action_options = ["Go Cash", "Half Portfolio"]
+            regime_action = st.selectbox("Regime Filter Action", action_options,
+                                         help="Go Cash: Exit all | Half Portfolio: Reduce 50%")
+            exit_check = st.selectbox("Exit Check Frequency",
+                                      ["Intraday (Daily Check)", "Rebalance Day Only"]) if regime_type != "EQUITY" else "Intraday (Daily Check)"
+
             regime_config = {
                 'enabled': True,
                 'type': regime_type,
+                'value': regime_value,
                 'action': regime_action,
+                'recovery_dd': recovery_dd,
+                'ma_period': ma_period if regime_type == "EQUITY_MA" else None,
+                'exit_period': exit_period if regime_type == "DONCHIAN" else None,
+                'recovery_period': recovery_period if regime_type == "DONCHIAN" else None,
+                'swing_period': swing_period if regime_type == "SWING_ATR" else None,
+                'atr_buffer': atr_buffer if regime_type == "SWING_ATR" else None,
+                'breadth_threshold': breadth_threshold if regime_type == "BREADTH" else None,
+                'breadth_index': breadth_index.replace(' ', '') if regime_type == "BREADTH" and breadth_index else None,
+                'exit_check': exit_check,
             }
 
         # ── Run Button ─────────────────────────────────────────────────────────

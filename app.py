@@ -71,6 +71,10 @@ for key, default in [
     ('current_backtest', None),
     ('current_backtest_active', False),
     ('benchmark_selection', 'NIFTY 50'),
+    ('idx_formula_value', '6 Month Performance'),
+    ('stk_formula_value', '6 Month Performance'),
+    ('last_idx_template', 'Custom'),
+    ('last_stk_template', 'Custom'),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -200,11 +204,24 @@ with main_tabs[0]:
         st.markdown('<div class="section-header">📈 Index Scoring Formula</div>', unsafe_allow_html=True)
         idx_tmpl = st.selectbox("Template", ["Custom"] + list(SCORING_TEMPLATES.keys()),
                                  key="idx_template", label_visibility="collapsed")
-        default_idx_formula = SCORING_TEMPLATES.get(idx_tmpl, "6 Month Performance") if idx_tmpl != "Custom" else "6 Month Performance"
-        index_formula = st.text_area("Index Formula", value=default_idx_formula,
+        # Sync formula when template changes
+        if idx_tmpl != "Custom" and idx_tmpl != st.session_state.last_idx_template:
+            st.session_state.idx_formula_value = SCORING_TEMPLATES[idx_tmpl]
+            st.session_state.last_idx_template = idx_tmpl
+        elif idx_tmpl == "Custom" and st.session_state.last_idx_template != "Custom":
+            st.session_state.last_idx_template = "Custom"
+
+        index_formula = st.text_area("Index Formula",
+                                     value=st.session_state.idx_formula_value,
                                      height=80, key="idx_formula")
+        # Keep session state in sync if user edits manually
+        st.session_state.idx_formula_value = index_formula
+
         idx_ok, idx_msg = parser.validate_formula(index_formula)
-        st.success(f"✅ {idx_msg}") if idx_ok else st.error(f"❌ {idx_msg}")
+        if idx_ok:
+            st.success(f"✅ {idx_msg}")
+        else:
+            st.error(f"❌ {idx_msg}")
 
         with st.expander("📖 Available Metrics", expanded=False):
             st.caption("💡 Use any 1-24 months or 1-52 weeks, e.g. `15 Month Performance`, `2 Week Volatility`")
@@ -220,11 +237,23 @@ with main_tabs[0]:
             st.markdown('<div class="section-header">📊 Stock Scoring Formula</div>', unsafe_allow_html=True)
             stk_tmpl = st.selectbox("Stock Template", ["Custom"] + list(SCORING_TEMPLATES.keys()),
                                      key="stk_template", label_visibility="collapsed")
-            default_stk = SCORING_TEMPLATES.get(stk_tmpl, "6 Month Performance") if stk_tmpl != "Custom" else "6 Month Performance"
-            stock_formula = st.text_area("Stock Formula", value=default_stk,
-                                         height=80, key="stk_formula")
+            # Sync formula when template changes
+            if stk_tmpl != "Custom" and stk_tmpl != st.session_state.last_stk_template:
+                st.session_state.stk_formula_value = SCORING_TEMPLATES[stk_tmpl]
+                st.session_state.last_stk_template = stk_tmpl
+            elif stk_tmpl == "Custom" and st.session_state.last_stk_template != "Custom":
+                st.session_state.last_stk_template = "Custom"
+
+            stock_formula = st.text_area("Stock Formula",
+                                          value=st.session_state.stk_formula_value,
+                                          height=80, key="stk_formula")
+            st.session_state.stk_formula_value = stock_formula
+
             stk_ok, stk_msg = parser.validate_formula(stock_formula)
-            st.success(f"✅ {stk_msg}") if stk_ok else st.error(f"❌ {stk_msg}")
+            if stk_ok:
+                st.success(f"✅ {stk_msg}")
+            else:
+                st.error(f"❌ {stk_msg}")
         else:
             stock_formula = None
 

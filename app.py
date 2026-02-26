@@ -200,21 +200,25 @@ with main_tabs[0]:
             num_stocks = sc1.number_input("# Stocks", min_value=3, max_value=30, value=10)
             exit_rank = sc2.number_input("Exit Rank", min_value=5, max_value=50, value=15)
 
-        # ── Index Scoring ──────────────────────────────────────────────────────
         st.markdown('<div class="section-header">📈 Index Scoring Formula</div>', unsafe_allow_html=True)
         idx_tmpl = st.selectbox("Template", ["Custom"] + list(SCORING_TEMPLATES.keys()),
                                  key="idx_template", label_visibility="collapsed")
-        # Sync formula when template changes
-        if idx_tmpl != "Custom" and idx_tmpl != st.session_state.last_idx_template:
-            st.session_state.idx_formula_value = SCORING_TEMPLATES[idx_tmpl]
-            st.session_state.last_idx_template = idx_tmpl
-        elif idx_tmpl == "Custom" and st.session_state.last_idx_template != "Custom":
-            st.session_state.last_idx_template = "Custom"
+        
+        # Determine the default text for the text_area
+        current_idx_val = st.session_state.idx_formula_value
+        if idx_tmpl != "Custom":
+            # If a template is chosen and it differs from the last chosen template, override text
+            if idx_tmpl != st.session_state.last_idx_template:
+                current_idx_val = SCORING_TEMPLATES[idx_tmpl]
+                st.session_state.last_idx_template = idx_tmpl
+        else:
+            if st.session_state.last_idx_template != "Custom":
+                st.session_state.last_idx_template = "Custom"
 
         index_formula = st.text_area("Index Formula",
-                                     value=st.session_state.idx_formula_value,
-                                     height=80, key="idx_formula")
-        # Keep session state in sync if user edits manually
+                                     value=current_idx_val,
+                                     height=80, key="idx_formula_input")
+        # Save back the actual input
         st.session_state.idx_formula_value = index_formula
 
         idx_ok, idx_msg = parser.validate_formula(index_formula)
@@ -233,20 +237,26 @@ with main_tabs[0]:
 """)
 
         # ── Stock Scoring (shown when relevant) ───────────────────────────────
-        if rotation_mode == "Sector Rotation":
+        show_stock_formula = (rotation_mode == "Sector Rotation") or \
+                             (rotation_mode == "Asset Class Rotation" and 'investment_type' in dir() and investment_type == "Stock")
+        
+        if show_stock_formula:
             st.markdown('<div class="section-header">📊 Stock Scoring Formula</div>', unsafe_allow_html=True)
             stk_tmpl = st.selectbox("Stock Template", ["Custom"] + list(SCORING_TEMPLATES.keys()),
                                      key="stk_template", label_visibility="collapsed")
-            # Sync formula when template changes
-            if stk_tmpl != "Custom" and stk_tmpl != st.session_state.last_stk_template:
-                st.session_state.stk_formula_value = SCORING_TEMPLATES[stk_tmpl]
-                st.session_state.last_stk_template = stk_tmpl
-            elif stk_tmpl == "Custom" and st.session_state.last_stk_template != "Custom":
-                st.session_state.last_stk_template = "Custom"
+            
+            current_stk_val = st.session_state.stk_formula_value
+            if stk_tmpl != "Custom":
+                if stk_tmpl != st.session_state.last_stk_template:
+                    current_stk_val = SCORING_TEMPLATES[stk_tmpl]
+                    st.session_state.last_stk_template = stk_tmpl
+            else:
+                if st.session_state.last_stk_template != "Custom":
+                    st.session_state.last_stk_template = "Custom"
 
             stock_formula = st.text_area("Stock Formula",
-                                          value=st.session_state.stk_formula_value,
-                                          height=80, key="stk_formula")
+                                          value=current_stk_val,
+                                          height=80, key="stk_formula_input")
             st.session_state.stk_formula_value = stock_formula
 
             stk_ok, stk_msg = parser.validate_formula(stock_formula)

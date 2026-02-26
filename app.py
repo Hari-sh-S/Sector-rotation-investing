@@ -140,6 +140,16 @@ def color_metric(val, positive_good=True):
         return val
     return "🟢" if (val > 0) == positive_good else "🔴"
 
+def on_idx_template_change():
+    tmpl = st.session_state.idx_template
+    if tmpl != "Custom":
+        st.session_state.idx_formula_input = SCORING_TEMPLATES[tmpl]
+
+def on_stk_template_change():
+    tmpl = st.session_state.stk_template
+    if tmpl != "Custom":
+        st.session_state.stk_formula_input = SCORING_TEMPLATES[tmpl]
+
 def make_excel_download(engine, metrics, result_name):
     """Create in-memory Excel workbook with backtest data."""
     buf = io.BytesIO()
@@ -216,25 +226,17 @@ with main_tabs[0]:
             exit_rank = sc2.number_input("Exit Rank", min_value=5, max_value=50, value=15)
 
         st.markdown('<div class="section-header">📈 Index Scoring Formula</div>', unsafe_allow_html=True)
+        # Initialize the text area state if it doesn't exist
+        if "idx_formula_input" not in st.session_state:
+            st.session_state.idx_formula_input = "6 Month Performance"
+
         idx_tmpl = st.selectbox("Template", ["Custom"] + list(SCORING_TEMPLATES.keys()),
-                                 key="idx_template", label_visibility="collapsed")
-        
-        # Determine the default text for the text_area
-        current_idx_val = st.session_state.idx_formula_value
-        if idx_tmpl != "Custom":
-            # If a template is chosen and it differs from the last chosen template, override text
-            if idx_tmpl != st.session_state.last_idx_template:
-                current_idx_val = SCORING_TEMPLATES[idx_tmpl]
-                st.session_state.last_idx_template = idx_tmpl
-        else:
-            if st.session_state.last_idx_template != "Custom":
-                st.session_state.last_idx_template = "Custom"
+                                 key="idx_template", label_visibility="collapsed",
+                                 on_change=on_idx_template_change)
 
         index_formula = st.text_area("Index Formula",
-                                     value=current_idx_val,
-                                     height=80, key="idx_formula_input")
-        # Save back the actual input
-        st.session_state.idx_formula_value = index_formula
+                                     key="idx_formula_input",
+                                     height=80)
 
         idx_ok, idx_msg = parser.validate_formula(index_formula)
         if idx_ok:
@@ -257,22 +259,16 @@ with main_tabs[0]:
         
         if show_stock_formula:
             st.markdown('<div class="section-header">📊 Stock Scoring Formula</div>', unsafe_allow_html=True)
+            if "stk_formula_input" not in st.session_state:
+                st.session_state.stk_formula_input = "6 Month Performance"
+
             stk_tmpl = st.selectbox("Stock Template", ["Custom"] + list(SCORING_TEMPLATES.keys()),
-                                     key="stk_template", label_visibility="collapsed")
-            
-            current_stk_val = st.session_state.stk_formula_value
-            if stk_tmpl != "Custom":
-                if stk_tmpl != st.session_state.last_stk_template:
-                    current_stk_val = SCORING_TEMPLATES[stk_tmpl]
-                    st.session_state.last_stk_template = stk_tmpl
-            else:
-                if st.session_state.last_stk_template != "Custom":
-                    st.session_state.last_stk_template = "Custom"
+                                     key="stk_template", label_visibility="collapsed",
+                                     on_change=on_stk_template_change)
 
             stock_formula = st.text_area("Stock Formula",
-                                          value=current_stk_val,
-                                          height=80, key="stk_formula_input")
-            st.session_state.stk_formula_value = stock_formula
+                                          key="stk_formula_input",
+                                          height=80)
 
             stk_ok, stk_msg = parser.validate_formula(stock_formula)
             if stk_ok:

@@ -11,10 +11,10 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import datetime
-import datetime
 import time
 import io
 import os
+import pytz
 
 from portfolio_engine import RotationEngine
 from scoring import ScoreParser
@@ -160,7 +160,13 @@ def make_excel_download(engine, metrics, result_name):
     return buf
 
 # ─── MAIN TABS ────────────────────────────────────────────────────────────────
-last_updated = datetime.datetime.fromtimestamp(os.path.getmtime(__file__)).strftime("%Y-%m-%d %I:%M %p")
+try:
+    ist = pytz.timezone('Asia/Kolkata')
+    dt_utc = datetime.datetime.fromtimestamp(os.path.getmtime(__file__), tz=datetime.timezone.utc)
+    last_updated = dt_utc.astimezone(ist).strftime("%Y-%m-%d %I:%M %p IST")
+except Exception:
+    last_updated = datetime.datetime.fromtimestamp(os.path.getmtime(__file__)).strftime("%Y-%m-%d %I:%M %p")
+
 st.markdown(f"""
 <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1rem;">
     <h2 style="margin: 0; padding: 0;">🔄 Multi-Asset Rotation Backtest</h2>

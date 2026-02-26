@@ -20,8 +20,9 @@ from portfolio_engine import RotationEngine
 from scoring import ScoreParser
 from indices_universe import (
     ASSET_CLASS_ORDER, ASSET_CLASS_INDICES, SECTORAL_INDICES, THEMATIC_INDICES,
-    get_etf, get_stock_count
+    get_etf, get_stock_count, is_equity_asset, get_nse_name
 )
+from nse_fetcher import get_universe
 from strategy_storage import (
     save_strategy, load_strategies, delete_strategy, get_strategy, get_strategy_names
 )
@@ -429,7 +430,8 @@ with main_tabs[0]:
                     st.error("Failed to fetch index data.")
                     st.stop()
 
-                # Fetch ETF/stock data for asset class mode
+                # Fetch ETF/stock data depending on mode and config
+                stocks_to_fetch = set()
                 if rotation_mode == "Asset Class Rotation":
                     if investment_type == "ETF":
                         etfs = [ASSET_CLASS_INDICES[ac]['etf'] for ac in all_indices
@@ -437,8 +439,32 @@ with main_tabs[0]:
                         progress_bar.progress(55, text="📥 Fetching ETFs…")
                         engine.fetch_etf_data(etfs)
                     else:
-                        progress_bar.progress(55, text="📥 Fetching stocks…")
-                        # Stock universe would be loaded here
+                        progress_bar.progress(55, text="📥 Gathering equity constituents…")
+                        for ac in all_indices:
+                            if is_equity_asset(ac):
+                                nse_name = get_nse_name(ac)
+                                stocks = get_universe(nse_name)
+                                if stocks:
+                                    stocks_to_fetch.update(stocks)
+                else:
+                    progress_bar.progress(55, text="📥 Gathering sector constituents…")
+                    for idx in all_indices:
+                        nse_name = get_nse_name(idx)
+                        stocks = get_universe(nse_name)
+                        if stocks:
+                            stocks_to_fetch.update(stocks)
+                            
+                # If we accrued any stocks to fetch, fetch them now
+                if stocks_to_fetch:
+                    stocks_list = sorted(list(stocks_to_fetch))
+                    def stock_cb(cur, tot, name):
+                        pct = 55 + int(cur / tot * 15)  # Range from 55% to 70%
+                        elapsed = time.time() - t0
+                        progress_bar.progress(pct, text=f"📥 Fetching Stock {name}… ({cur}/{tot}) | {elapsed:.0f}s")
+                    
+                    ok = engine.fetch_stock_data(stocks_list, progress_callback=stock_cb)
+                    if not ok:
+                        st.warning("Could not fetch some or all stock data.")
 
                 progress_bar.progress(70, text="🧮 Running backtest…")
 

@@ -38,7 +38,7 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-.block-container { padding-top: 0.7rem; padding-bottom: 0rem; }
+.block-container { padding-top: 2rem; padding-bottom: 0rem; }
 .stTabs [data-baseweb="tab-list"] { gap: 3px; }
 .stTabs [data-baseweb="tab"] {
     height: 38px; background-color: #1a1a2e; border-radius: 6px;

@@ -433,12 +433,12 @@ with main_tabs[0]:
                 # Fetch ETF/stock data depending on mode and config
                 stocks_to_fetch = set()
                 if rotation_mode == "Asset Class Rotation":
-                    if investment_type == "ETF":
-                        etfs = [ASSET_CLASS_INDICES[ac]['etf'] for ac in all_indices
-                                if 'etf' in ASSET_CLASS_INDICES[ac]]
-                        progress_bar.progress(55, text="📥 Fetching ETFs…")
-                        engine.fetch_etf_data(etfs)
-                    else:
+                    etfs = [ASSET_CLASS_INDICES[ac]['etf'] for ac in all_indices
+                            if 'etf' in ASSET_CLASS_INDICES[ac]]
+                    progress_bar.progress(55, text="📥 Fetching ETFs…")
+                    engine.fetch_etf_data(etfs)
+                    
+                    if investment_type != "ETF":
                         progress_bar.progress(55, text="📥 Gathering equity constituents…")
                         for ac in all_indices:
                             if is_equity_asset(ac):

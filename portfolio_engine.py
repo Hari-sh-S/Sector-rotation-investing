@@ -16,6 +16,7 @@ from indices_universe import (
     ASSET_CLASS_INDICES, ASSET_CLASS_ORDER, SECTORAL_INDICES, THEMATIC_INDICES,
     get_yahoo_ticker, get_etf, get_stock_count, is_equity_asset, get_nse_name
 )
+from nse_fetcher import get_universe
 
 
 class DataCache:
@@ -723,9 +724,12 @@ class RotationEngine:
                     else:
                         # Invest in stocks within asset class
                         stock_count = asset_info['stock_count']
-                        # Get stocks from universe (would need NSE fetcher integration)
-                        # For now, use stocks that we have data for
-                        available_stocks = [s for s in self.stock_data.keys()]
+                        # Get specific universe for this asset class
+                        nse_name = get_nse_name(asset_class)
+                        asset_universe = get_universe(nse_name)
+                        
+                        # Only score stocks that belong to this asset class and have data
+                        available_stocks = [s for s in asset_universe if s in self.stock_data]
                         stock_scores = self.score_stocks(date, stock_formula, available_stocks)
                         
                         top_stocks = [s[0] for s in stock_scores[:stock_count]]
@@ -963,9 +967,15 @@ class RotationEngine:
                 print(f"Top 5 indices: {top_5_indices}")
                 
                 # Merge unique stocks from top 5 indices
-                # (In production, would fetch from NSE API)
-                # For now, use all available stocks as universe
-                current_universe = list(self.stock_data.keys())
+                current_universe_set = set()
+                for idx in top_5_indices:
+                    nse_name = get_nse_name(idx)
+                    stocks = get_universe(nse_name)
+                    if stocks:
+                        current_universe_set.update(stocks)
+                        
+                # Filter to stocks we actually have data for
+                current_universe = [s for s in current_universe_set if s in self.stock_data]
                 
                 # Score stocks
                 stock_scores = self.score_stocks(date, stock_formula, current_universe)
